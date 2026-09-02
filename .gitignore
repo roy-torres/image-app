@@ -1,0 +1,69 @@
+# --- Dependencies ---
+node_modules/
+.pnp
+.pnp.js
+.yarn/*
+!.yarn/patches
+!.yarn/releases
+!.yarn/plugins
+!.yarn/sdks
+!.yarn/versions
+
+# --- Build output ---
+dist/
+dist-ssr/
+build/
+*.local
+
+# --- Secrets / environment ---
+# Ignore every .env variant; keep the checked-in template.
+.env
+.env.*
+!.env.example
+# Credentials, keys, certs — never commit these.
+*.pem
+*.key
+*.p12
+*.pfx
+*.keystore
+secrets.json
+.secrets/
+
+# --- Vercel ---
+.vercel/
+
+# --- Caches ---
+.cache/
+.vite/
+.eslintcache
+.npm/
+*.tsbuildinfo
+
+# --- Logs ---
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# --- Test / coverage ---
+coverage/
+.nyc_output/
+
+# --- Editor / OS ---
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.swp
+*.swo
+*~
