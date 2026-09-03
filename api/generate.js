@@ -11,6 +11,10 @@
 //   WEBHOOK_SECRET    - sent upstream as `Authorization: Bearer <secret>`
 //   ALLOWED_ORIGINS   - comma-separated origin allow-list
 //                       (defaults to http://localhost:5173 for local dev)
+//   ALLOWED_ORIGIN_SUFFIXES - comma-separated host suffixes; any https origin
+//                       whose host ends with one is allowed. Use this for
+//                       Vercel preview deployments, which each get a unique
+//                       hostname, e.g. "-roy-torres-projects.vercel.app".
 //   MAX_FILE_MB       - per-file cap (default 4)
 //   RATE_LIMIT_MAX    - requests per window per IP (default 10)
 //   RATE_LIMIT_WINDOW_MS - window length (default 60000)
@@ -65,11 +69,29 @@ export default async function handler(request) {
     .filter(Boolean);
   const allowList = allowed.length ? allowed : DEFAULT_ALLOWED;
 
+  // Optional host-suffix allow-list so Vercel preview deployments — each on a
+  // unique hostname — pass without enumerating every URL. https only.
+  const allowSuffixes = (process.env.ALLOWED_ORIGIN_SUFFIXES || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+
   const origin = request.headers.get('origin');
   // Browsers always send Origin on cross-origin POSTs and on same-origin POSTs
   // with FormData. Reject anything not on the list; reject missing Origin too
   // (non-browser clients) unless it's a same-origin request we can verify.
-  if (!origin || !allowList.includes(origin)) {
+  const originAllowed =
+    !!origin &&
+    (allowList.includes(origin) ||
+      allowSuffixes.some((suffix) => {
+        try {
+          const { protocol, host } = new URL(origin);
+          return protocol === 'https:' && host.endsWith(suffix);
+        } catch {
+          return false;
+        }
+      }));
+  if (!originAllowed) {
     return json(403, { error: 'Origin not allowed.' });
   }
 
