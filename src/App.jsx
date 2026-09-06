@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import ImageUploader from './components/ImageUploader.jsx';
+import PresetPicker from './components/PresetPicker.jsx';
 import ResultPanel from './components/ResultPanel.jsx';
 import AuthScreen from './components/AuthScreen.jsx';
 import Paywall from './components/Paywall.jsx';
@@ -7,9 +8,11 @@ import Spinner from './components/Spinner.jsx';
 import { useAuth } from './context/AuthContext.jsx';
 import { generateImage } from './lib/generateImage.js';
 import { prepareImage } from './lib/prepareImage.js';
+import { urlToFile } from './lib/urlToFile.js';
+import { MODELS, WARDROBE } from './catalog.js';
 import { STRIPE_BILLING_PORTAL_URL } from './config.js';
 
-const EMPTY_SLOT = { file: null, previewUrl: '', error: '' };
+const EMPTY_SLOT = { file: null, previewUrl: '', error: '', presetId: null };
 
 const IMAGE_EXT = /\.(png|jpe?g|webp|gif|bmp|avif)$/i;
 
@@ -69,8 +72,36 @@ export default function App() {
       }
       setSlot((prev) => {
         if (prev.previewUrl) URL.revokeObjectURL(prev.previewUrl);
-        return { file, previewUrl: URL.createObjectURL(file), error: '' };
+        return { file, previewUrl: URL.createObjectURL(file), error: '', presetId: null };
       });
+    },
+    [],
+  );
+
+  // Clicking a built-in model / wardrobe thumbnail: fetch the bundled asset,
+  // wrap it in a File, and drop it into the slot like a manual upload.
+  const makePresetHandler = useCallback(
+    (setSlot) => async (item) => {
+      try {
+        const file = await urlToFile(item.src, `${item.id}.jpg`);
+        setSlot((prev) => {
+          if (prev.previewUrl) URL.revokeObjectURL(prev.previewUrl);
+          return {
+            file,
+            previewUrl: URL.createObjectURL(file),
+            error: '',
+            presetId: item.id,
+          };
+        });
+      } catch (err) {
+        setSlot((prev) => {
+          if (prev.previewUrl) URL.revokeObjectURL(prev.previewUrl);
+          return {
+            ...EMPTY_SLOT,
+            error: err?.message || 'Could not load that image.',
+          };
+        });
+      }
     },
     [],
   );
@@ -89,6 +120,8 @@ export default function App() {
   const handleSelectAttribute = makeSelectHandler(setAttribute);
   const handleClearSubject = makeClearHandler(setSubject);
   const handleClearAttribute = makeClearHandler(setAttribute);
+  const handlePickModel = makePresetHandler(setSubject);
+  const handlePickGarment = makePresetHandler(setAttribute);
 
   const canGenerate = Boolean(subject.file && attribute.file) && !loading;
 
@@ -193,31 +226,50 @@ export default function App() {
         <div className="mb-8 text-center">
           <h1 className="text-2xl font-semibold sm:text-3xl">Virtual Try-On Studio</h1>
           <p className="mx-auto mt-2 max-w-md text-sm text-black/55">
-            Upload a subject and an attribute image, then generate a combined result.
+            Pick a model or upload your photo, choose a piece of clothing, then
+            generate the try-on.
           </p>
         </div>
 
         <div className="grid gap-6 md:grid-cols-2">
-          <ImageUploader
-            title="Subject"
-            hint="A person or model"
-            previewUrl={subject.previewUrl}
-            fileName={subject.file?.name}
-            error={subject.error}
-            disabled={loading}
-            onSelect={handleSelectSubject}
-            onClear={handleClearSubject}
-          />
-          <ImageUploader
-            title="Attribute"
-            hint="Clothing or an accessory"
-            previewUrl={attribute.previewUrl}
-            fileName={attribute.file?.name}
-            error={attribute.error}
-            disabled={loading}
-            onSelect={handleSelectAttribute}
-            onClear={handleClearAttribute}
-          />
+          <div className="space-y-4">
+            <ImageUploader
+              title="Subject"
+              hint="A person or model"
+              previewUrl={subject.previewUrl}
+              fileName={subject.file?.name}
+              error={subject.error}
+              disabled={loading}
+              onSelect={handleSelectSubject}
+              onClear={handleClearSubject}
+            />
+            <PresetPicker
+              title="Or try a sample model"
+              items={MODELS}
+              selectedId={subject.presetId}
+              disabled={loading}
+              onPick={handlePickModel}
+            />
+          </div>
+          <div className="space-y-4">
+            <ImageUploader
+              title="Attribute"
+              hint="Clothing or an accessory"
+              previewUrl={attribute.previewUrl}
+              fileName={attribute.file?.name}
+              error={attribute.error}
+              disabled={loading}
+              onSelect={handleSelectAttribute}
+              onClear={handleClearAttribute}
+            />
+            <PresetPicker
+              title="Or pick a piece of clothing"
+              items={WARDROBE}
+              selectedId={attribute.presetId}
+              disabled={loading}
+              onPick={handlePickGarment}
+            />
+          </div>
         </div>
 
         <div className="mt-8 flex flex-wrap items-center justify-center gap-3">

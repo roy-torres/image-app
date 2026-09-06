@@ -33,6 +33,11 @@ App.jsx state ─▶ prepareImage() downscales each File ─▶ generateImage()
   ─▶ response streamed back ─▶ ResultPanel renders it
 ```
 
+Each of the two image slots (Subject, Attribute) is filled either by a manual
+upload or by one click on a built-in thumbnail (`src/catalog.js` via
+`PresetPicker`); a preset pick is `fetch`ed into a `File` (`src/lib/urlToFile.js`)
+so everything downstream is identical either way.
+
 ### Server side
 
 - `api/generate.js` — Vercel **Edge** function (`runtime: 'edge'`). The only
@@ -165,6 +170,16 @@ going live means re-creating the product/price/link/webhook with live keys.
   `STRIPE_PAYMENT_LINK` (from `VITE_STRIPE_PAYMENT_LINK`) and
   `STRIPE_BILLING_PORTAL_URL` (from `VITE_STRIPE_BILLING_PORTAL_URL`, optional).
   No webhook URL, no Stripe secret.
+- `src/catalog.js` — `MODELS` + `WARDROBE`: built-in sample subjects and
+  clothing, each a bundled (Vite-fingerprinted) asset under `src/assets/`. Add a
+  piece by dropping the file in and adding one line here.
+- `src/components/PresetPicker.jsx` — the thumbnail strip under each
+  `ImageUploader`. Clicking a thumb calls `onPick(item)`; `App.jsx`'s
+  `makePresetHandler` runs `urlToFile(item.src)` and drops the resulting `File`
+  into that slot exactly like a manual upload (same prepareImage → generateImage
+  path). Slot state gains `presetId` so the active thumb is highlighted; a manual
+  upload or clear resets it to `null`.
+- `src/lib/urlToFile.js` — `fetch()` a same-origin bundled asset → `File`.
 - `src/lib/prepareImage.js` — canvas downscale + JPEG re-encode so uploads stay
   under `MAX_UPLOAD_BYTES` (Vercel's ~4.5 MB body cap). Runs at generate time,
   not select time; throws a user-facing message if an image can't be shrunk.
@@ -177,8 +192,12 @@ going live means re-creating the product/price/link/webhook with live keys.
   `URL.createObjectURL` lifecycle management**. Every object URL (two previews +
   the result) is revoked on replace, reset, and unmount via `useEffect` cleanups
   keyed to the URL; an `AbortController` ref cancels an in-flight request. Keep
-  any new object URL wired into that pattern. **Image-type validation lives
-  here** (`isImageFile`, plus an SVG reject), not in `ImageUploader`.
+  any new object URL wired into that pattern. A preset pick
+  (`makePresetHandler`) creates its preview object URL the same way a manual
+  upload does, and each slot carries a `presetId` (`null` after a manual upload
+  or clear) so `PresetPicker` can highlight the active thumb. **Image-type
+  validation lives here** (`isImageFile`, plus an SVG reject), not in
+  `ImageUploader`.
 - `src/components/ImageUploader.jsx` — presentational picker; forwards the raw
   `File` upward.
 - `src/components/ResultPanel.jsx` — renders only when loading/error/result set;

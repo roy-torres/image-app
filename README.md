@@ -2,6 +2,8 @@
 
 A single-page app that takes two images — a **Subject** (person) and an
 **Attribute** (clothing/accessory) — and returns a generated composite image.
+Each slot can be a manual upload or a one-click pick from the built-in models /
+wardrobe (`src/catalog.js`, shown by `PresetPicker`).
 
 Built with **Vite + React + Tailwind CSS v4**. The browser never talks to the
 image webhook directly: it POSTs to a same-origin serverless proxy
@@ -30,15 +32,19 @@ vercel.json                CSP + security headers for every response
 vite.config.js             Vite config + apiDevServer plugin (runs the proxy under `vite dev`)
 src/
   config.js                API_ENDPOINT + browser-downscale knobs (no webhook URL)
+  catalog.js               MODELS + WARDROBE — built-in sample subjects / clothing
+  assets/                  bundled model + wardrobe images (Vite-fingerprinted)
   App.jsx                   auth gate, all state, generate/reset flow, object-URL lifecycle
   context/
     AuthContext.jsx         AuthProvider + useAuth() (session, signUp/signIn/signOut)
   lib/
     prepareImage.js         canvas downscale + JPEG re-encode before upload
+    urlToFile.js            fetch a bundled catalog asset → File
     generateImage.js         POST to /api/generate, defensive response handling
     supabaseClient.js        Supabase browser client singleton
   components/
     ImageUploader.jsx        drag/drop + browse + preview (presentational)
+    PresetPicker.jsx         thumbnail strip of built-in models / wardrobe
     ResultPanel.jsx          spinner / result image / download button / error
     AuthScreen.jsx           full-page login/signup shell (shown when signed out)
     AuthForm.jsx             email/name/password form, sign in ⇄ create account
