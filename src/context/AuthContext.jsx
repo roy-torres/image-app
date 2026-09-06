@@ -44,11 +44,12 @@ export function AuthProvider({ children }) {
   // Function (the payment columns are service-role-only writable — see the
   // add_payment_fields_to_profiles / switch_profiles_to_subscription
   // migrations). `silent` skips the loading flag for background re-checks.
+  // Resolves to the read value: `true` / `false`, or `null` on a read error.
   const fetchEntitlement = useCallback(async (userId, { silent = false } = {}) => {
     if (!userId) {
       setIsPaid(null);
       setEntitlementLoading(false);
-      return;
+      return null;
     }
     if (!silent) setEntitlementLoading(true);
     try {
@@ -63,9 +64,11 @@ export function AuthProvider({ children }) {
         // only while `isPaid` is still null.
         console.error('Failed to read entitlement:', error.message);
         setIsPaid((prev) => (prev === null ? false : prev));
-      } else {
-        setIsPaid(Boolean(data?.is_paid));
+        return null;
       }
+      const paid = Boolean(data?.is_paid);
+      setIsPaid(paid);
+      return paid;
     } finally {
       if (!silent) setEntitlementLoading(false);
     }

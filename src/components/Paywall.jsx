@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { STRIPE_PAYMENT_LINK } from '../config.js';
 import Spinner from './Spinner.jsx';
@@ -24,6 +24,18 @@ export default function Paywall() {
       return '';
     }
   }, [user?.id, user?.email]);
+
+  // Feedback for the manual "I've already subscribed" check: null (idle),
+  // 'none' (checked, still no active membership), 'error' (couldn't reach it).
+  const [checkResult, setCheckResult] = useState(null);
+
+  async function handleManualCheck() {
+    setCheckResult(null);
+    const paid = await refreshEntitlement();
+    // paid === true unmounts this screen via the App gate; nothing to show.
+    if (paid === false) setCheckResult('none');
+    else if (paid == null) setCheckResult('error');
+  }
 
   // Keep a ref so the poll/effect below doesn't need refreshEntitlement in deps.
   const refreshRef = useRef(refreshEntitlement);
@@ -102,13 +114,29 @@ export default function Paywall() {
 
           <button
             type="button"
-            onClick={() => refreshEntitlement()}
+            onClick={handleManualCheck}
             disabled={entitlementLoading}
             className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-full border border-black/20 px-6 py-2.5 text-sm font-medium transition hover:bg-black/5 disabled:opacity-40"
           >
             {entitlementLoading && <Spinner className="!h-4 !w-4" />}
             {entitlementLoading ? 'Checking…' : "I've already subscribed"}
           </button>
+
+          {checkResult === 'none' && (
+            <p className="mt-3 rounded-xl border border-black/10 bg-canvas px-3 py-2 text-xs text-black/60">
+              No active membership found for{' '}
+              <span className="font-medium">{user?.email}</span> yet. If you just
+              subscribed, give it a few seconds and try again — this also checks
+              itself automatically. If you paid with a different email, that&rsquo;s
+              the mismatch.
+            </p>
+          )}
+          {checkResult === 'error' && (
+            <p className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+              Couldn&rsquo;t check your membership just now. Check your connection
+              and try again.
+            </p>
+          )}
 
           <p className="mt-4 text-xs text-black/40">
             Subscribing with a different email? Use{' '}
