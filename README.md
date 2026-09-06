@@ -5,7 +5,9 @@ A single-page app that takes two images — a **Subject** (person) and an
 
 Built with **Vite + React + Tailwind CSS v4**. The browser never talks to the
 image webhook directly: it POSTs to a same-origin serverless proxy
-(`api/generate.js`) that holds the real URL and secret server-side.
+(`api/generate.js`) that holds the real URL and secret server-side. The whole app
+is gated behind **Supabase email/password auth** — see
+[Authentication](#authentication-supabase).
 
 ## Architecture
 
@@ -124,24 +126,38 @@ there is a session.
 | `VITE_SUPABASE_ANON_KEY` | yes | Supabase publishable/anon key (`sb_publishable_…`). Bundled into the client — safe, since it only grants what RLS allows. |
 
 Add both to the Vercel project's Environment Variables (all environments) and to
-`.env` for local dev. Update the `connect-src` in `vercel.json` if you point the
-app at a different Supabase project.
+`.env` for local dev. Vercel flags `VITE_`-prefixed vars as browser-exposed —
+that's expected here, so mark each one **"Config"** (not "Sensitive") and keep
+the prefix (Vite only exposes `VITE_*` to the client). Env-var changes need a
+**redeploy** to take effect. Update the `connect-src` in `vercel.json` if you
+point the app at a different Supabase project.
 
 For instant login (no email round-trip), turn **off** Supabase dashboard →
 **Authentication → Providers → Email → "Confirm email"**. With it on, signup
 sends a confirmation link and the UI asks the user to confirm before signing in.
+This is a project-wide setting, so it applies to local and production alike. On
+the free tier the built-in email sender caps confirmation emails at ~2/hour.
+
+Current deployment: **https://image-app-one-mu.vercel.app** (Supabase project
+`yzsxemoppdiefsuevmrz`, "Confirm email" off). Per-deployment preview URLs sit
+behind Vercel's login wall; use the project's production domain.
 
 ## Deploy to Vercel
 
 1. Push this repo to Git and import it in Vercel — the **Vite** preset is
    auto-detected (build `npm run build`, output `dist`), and `api/` is picked up
    as serverless functions automatically.
-2. Add the environment variables above.
+2. Add the environment variables above, including `VITE_SUPABASE_URL` /
+   `VITE_SUPABASE_ANON_KEY`, then redeploy.
 3. Set `ALLOWED_ORIGINS` to include the deployed domain, e.g.
-   `https://your-app.vercel.app,http://localhost:5173`.
+   `https://your-app.vercel.app,http://localhost:5173`. (This gates
+   `/api/generate` only — login talks to Supabase directly and is unaffected.)
+4. If the production URL must be public, check **Settings → Deployment
+   Protection** and keep Vercel Authentication limited to preview deployments.
 
 `vercel.json` adds a strict Content-Security-Policy and related security headers
-to every response.
+to every response. Note the login gates the **UI** only — `api/generate.js` still
+authorizes by Origin + rate limit, not by Supabase session.
 
 ## Hardening the n8n webhook (recommended)
 

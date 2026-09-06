@@ -20,8 +20,9 @@ checks for every `api/generate.js` response path.
 
 ## Architecture
 
-Vite + React 19 + Tailwind CSS v4 SPA **plus one serverless function**. The
-browser never calls the image webhook directly.
+Vite + React 19 + Tailwind CSS v4 SPA **plus one serverless function**, with the
+whole app gated behind **Supabase email/password auth**. The browser never calls
+the image webhook directly.
 
 ```
 App.jsx state ─▶ prepareImage() downscales each File ─▶ generateImage()
@@ -46,9 +47,42 @@ App.jsx state ─▶ prepareImage() downscales each File ─▶ generateImage()
   request/response contract changes.
 - `vercel.json` — strict CSP + security headers for all static responses. The CSP
   is `script-src 'self'` with no inline allowance; `build.modulePreload.polyfill`
-  is disabled in `vite.config.js` so the build emits no inline script. Adding an
-  inline `<script>`/`<style>` or a new external origin (font/CDN/API) means
-  updating the CSP here.
+  is disabled in `vite.config.js` so the build emits no inline script. `connect-src`
+  is `'self'` plus the Supabase project origin
+  (`https://yzsxemoppdiefsuevmrz.supabase.co`) so the browser can reach Supabase
+  Auth. Adding an inline `<script>`/`<style>` or a new external origin
+  (font/CDN/API, or a different Supabase project) means updating the CSP here.
+
+### Auth (Supabase)
+
+- Email/password only, via `@supabase/supabase-js` talking straight to Supabase
+  Auth from the browser (no proxy — unlike the image flow). Session is persisted
+  by supabase-js in `localStorage` and survives reloads.
+- `src/lib/supabaseClient.js` — the one `createClient` instance, built from
+  `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY`. These **are** `VITE_`-prefixed
+  and ship in the bundle **on purpose**: the publishable/anon key only grants
+  what RLS allows. This is a different class of value than `WEBHOOK_SECRET`.
+  Throws at import time if either var is missing.
+- `src/context/AuthContext.jsx` — `AuthProvider` (wraps `<App>` in `main.jsx`) +
+  `useAuth()` → `{ loading, session, user, displayName, signUp, signIn, signOut }`.
+  `signUp` passes the name as `options.data.full_name`.
+- `src/App.jsx` is the gate: `loading` → spinner, no `session` → `<AuthScreen />`,
+  else the Studio (header gains `displayName` + a Sign out button). Keep the
+  auth early-returns **after** all hook calls.
+- `src/components/AuthScreen.jsx` / `AuthForm.jsx` — the signed-out UI; a single
+  form toggling sign-in ⇄ create-account.
+- **Name storage**: a `public.profiles` row (`id` → `auth.users`, `full_name`,
+  `email`, `created_at`), created by the `handle_new_user()` trigger on
+  `auth.users` insert. RLS is owner-only select/update; the trigger function has
+  `EXECUTE` revoked from `anon`/`authenticated` so it isn't a callable RPC.
+  Applied as migrations `create_profiles_table` + `lock_down_handle_new_user`.
+- **`api/generate.js` is NOT auth-aware.** The login only gates the UI; the proxy
+  still authorizes by Origin + rate limit only. Gating the API would mean sending
+  the Supabase access token and verifying it server-side (not done).
+- Supabase project: `yzsxemoppdiefsuevmrz`. "Confirm email" is turned **off** in
+  the dashboard (Authentication → Providers → Email) for instant login; the
+  client still handles the confirmation-required response if it's ever re-enabled.
+  Live at `https://image-app-one-mu.vercel.app`.
 
 ### Client side
 
@@ -88,3 +122,6 @@ App.jsx state ─▶ prepareImage() downscales each File ─▶ generateImage()
   real value lives only in git-ignored `.env` / Vercel env.
 - `WEBHOOK_SECRET` + n8n Header Auth is the intended second layer; the proxy
   sends `Authorization: Bearer <secret>` whenever the env var is set.
+- `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` are the **only** `VITE_`-prefixed
+  env vars and are meant to be public (RLS-enforced). In Vercel they're marked
+  "Config", not "Sensitive". Never give a server-only secret a `VITE_` prefix.
