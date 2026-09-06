@@ -69,3 +69,6 @@ ehthumbs.db
 *~
 #mcp servers
 .mcp.json
+# Supabase CLI local artifacts
+supabase/.temp/
+supabase/.branches/

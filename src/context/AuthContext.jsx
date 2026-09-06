@@ -13,6 +13,11 @@ export function AuthProvider({ children }) {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  // Access entitlement (the one-time $9.99 purchase). `null` = not resolved yet
+  // for the current user; `true` / `false` once the profiles row has been read.
+  const [isPaid, setIsPaid] = useState(null);
+  const [entitlementLoading, setEntitlementLoading] = useState(false);
+
   useEffect(() => {
     let active = true;
 
@@ -33,6 +38,69 @@ export function AuthProvider({ children }) {
       subscription.unsubscribe();
     };
   }, []);
+
+  // Read `profiles.is_paid` for the signed-in user. It reflects the user's
+  // Stripe subscription state and is written only by the stripe-webhook Edge
+  // Function (the payment columns are service-role-only writable — see the
+  // add_payment_fields_to_profiles / switch_profiles_to_subscription
+  // migrations). `silent` skips the loading flag for background re-checks.
+  const fetchEntitlement = useCallback(async (userId, { silent = false } = {}) => {
+    if (!userId) {
+      setIsPaid(null);
+      setEntitlementLoading(false);
+      return;
+    }
+    if (!silent) setEntitlementLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('is_paid')
+        .eq('id', userId)
+        .maybeSingle();
+      if (error) {
+        // Leave `isPaid` as-is on a transient read failure rather than locking
+        // a paid user out; the paywall re-polls and App keeps showing a spinner
+        // only while `isPaid` is still null.
+        console.error('Failed to read entitlement:', error.message);
+        setIsPaid((prev) => (prev === null ? false : prev));
+      } else {
+        setIsPaid(Boolean(data?.is_paid));
+      }
+    } finally {
+      if (!silent) setEntitlementLoading(false);
+    }
+  }, []);
+
+  const userId = session?.user?.id ?? null;
+
+  useEffect(() => {
+    setIsPaid(null);
+    fetchEntitlement(userId);
+  }, [userId, fetchEntitlement]);
+
+  // Re-validate access for an already-open session: a subscription can lapse
+  // (canceled, payment failed) mid-session, and the user should drop to the
+  // paywall without needing to reload. Poll on an interval and on tab focus.
+  useEffect(() => {
+    if (!userId) return undefined;
+    const recheck = () => fetchEntitlement(userId, { silent: true });
+    const interval = setInterval(recheck, 60_000);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') recheck();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', recheck);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', recheck);
+    };
+  }, [userId, fetchEntitlement]);
+
+  const refreshEntitlement = useCallback(
+    (opts) => fetchEntitlement(userId, opts),
+    [fetchEntitlement, userId],
+  );
 
   const signUp = useCallback(async ({ name, email, password }) => {
     const { data, error } = await supabase.auth.signUp({
@@ -64,11 +132,23 @@ export function AuthProvider({ children }) {
       // full_name is set from options.data at signup; fall back to the email.
       displayName:
         session?.user?.user_metadata?.full_name || session?.user?.email || '',
+      isPaid,
+      entitlementLoading,
+      refreshEntitlement,
       signUp,
       signIn,
       signOut,
     }),
-    [loading, session, signUp, signIn, signOut],
+    [
+      loading,
+      session,
+      isPaid,
+      entitlementLoading,
+      refreshEntitlement,
+      signUp,
+      signIn,
+      signOut,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

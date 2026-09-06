@@ -5,9 +5,10 @@ A single-page app that takes two images — a **Subject** (person) and an
 
 Built with **Vite + React + Tailwind CSS v4**. The browser never talks to the
 image webhook directly: it POSTs to a same-origin serverless proxy
-(`api/generate.js`) that holds the real URL and secret server-side. The whole app
-is gated behind **Supabase email/password auth** — see
-[Authentication](#authentication-supabase).
+(`api/generate.js`) that holds the real URL and secret server-side. Access is
+gated in two stages — **Supabase email/password auth**
+([Authentication](#authentication-supabase)) then a **one-time $9.99 payment**
+([Payments](#payments-stripe)).
 
 ## Architecture
 
@@ -142,13 +143,72 @@ Current deployment: **https://image-app-one-mu.vercel.app** (Supabase project
 `yzsxemoppdiefsuevmrz`, "Confirm email" off). Per-deployment preview URLs sit
 behind Vercel's login wall; use the project's production domain.
 
+## Payments (Stripe)
+
+After signing up, a user is signed in but sees a **paywall**
+(`src/components/Paywall.jsx`) instead of the Studio until they have an active
+**$9.99/month** membership. It's a real subscription — if it lapses (cancel,
+failed payment) the user drops back to the paywall.
+
+Flow:
+
+1. The paywall opens a hosted **Stripe Payment Link** (subscription mode) with
+   `?client_reference_id=<supabase user id>&prefilled_email=<email>` appended.
+2. The user subscribes on Stripe's page; Stripe redirects back with `?paid=1`.
+3. Stripe sends `checkout.session.completed` to the **`stripe-webhook` Supabase
+   Edge Function**, which verifies the signature and sets `profiles.is_paid = true`
+   (plus `stripe_customer_id`, `stripe_subscription_id`, …) for that user via the
+   service role. This is the only event that carries the Supabase user id, so
+   it's where the Stripe customer gets linked to the account.
+4. Later `customer.subscription.created / updated / deleted` events (matched by
+   `stripe_customer_id`) keep `profiles.is_paid` in sync — `true` only while the
+   status is `active` or `trialing`.
+5. The app re-reads `profiles.is_paid` on the paywall (every 4 s + on `?paid=1`)
+   and, for an already-open session, every 60 s and on tab focus — so access is
+   granted and revoked without a reload.
+
+**Self-service cancel**: the Studio header has a **Manage billing** link to the
+Stripe Customer Portal (`VITE_STRIPE_BILLING_PORTAL_URL`). It's hidden until you
+set that up — Stripe Dashboard → **Settings → Billing → Customer portal**:
+activate it, enable the **login link**, and paste that URL into the env var.
+Cancellations there fire `customer.subscription.deleted` and revoke access.
+
+Membership state lives on `public.profiles` (migrations
+`add_payment_fields_to_profiles` + `switch_profiles_to_subscription`). Those
+migrations also restrict `UPDATE` on the table so a signed-in user can only
+change their own `full_name` — every payment column is writable **only** by the
+service role (the webhook).
+
+| Name | Where | Purpose |
+| --- | --- | --- |
+| `VITE_STRIPE_PAYMENT_LINK` | Vercel + `.env` (client, public) | The hosted subscription Payment Link URL. Not a secret. |
+| `VITE_STRIPE_BILLING_PORTAL_URL` | Vercel + `.env` (client, public, optional) | Stripe Customer Portal login link for "Manage billing". |
+| `STRIPE_WEBHOOK_SIGNING_SECRET` | **Supabase Edge Function secret** | `whsec_…` from the Stripe webhook endpoint. Verifies incoming webhooks. |
+| `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` | auto-injected into the Edge Function | Lets the webhook write `profiles`. |
+
+Currently everything is **Stripe test mode** (account "UX+AI"). Subscribe with
+card `4242 4242 4242 4242`, any future expiry, any CVC/ZIP. **To go live**:
+activate live mode on the Stripe account, re-create the product / $9.99-monthly
+price / Payment Link / webhook endpoint with live keys, set the live
+`STRIPE_WEBHOOK_SIGNING_SECRET` on Supabase, and point `VITE_STRIPE_PAYMENT_LINK`
+(and the portal URL) at the live links in Vercel (then redeploy).
+
+The Stripe webhook is a **Supabase Edge Function**, deployed with
+`verify_jwt = false` (Stripe can't send a Supabase JWT — it authenticates via the
+Stripe signature). Redeploy it with the Supabase CLI
+(`supabase functions deploy stripe-webhook --no-verify-jwt`) or the MCP
+`deploy_edge_function` tool. `api/generate.js` is **not** payment-aware — the
+paywall gates the UI only, same as the login.
+
 ## Deploy to Vercel
 
 1. Push this repo to Git and import it in Vercel — the **Vite** preset is
    auto-detected (build `npm run build`, output `dist`), and `api/` is picked up
    as serverless functions automatically.
 2. Add the environment variables above, including `VITE_SUPABASE_URL` /
-   `VITE_SUPABASE_ANON_KEY`, then redeploy.
+   `VITE_SUPABASE_ANON_KEY` and `VITE_STRIPE_PAYMENT_LINK`, then redeploy. The
+   Stripe webhook's `STRIPE_WEBHOOK_SIGNING_SECRET` goes on **Supabase**
+   (Edge Function secrets), not Vercel.
 3. Set `ALLOWED_ORIGINS` to include the deployed domain, e.g.
    `https://your-app.vercel.app,http://localhost:5173`. (This gates
    `/api/generate` only — login talks to Supabase directly and is unaffected.)

@@ -2,10 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import ImageUploader from './components/ImageUploader.jsx';
 import ResultPanel from './components/ResultPanel.jsx';
 import AuthScreen from './components/AuthScreen.jsx';
+import Paywall from './components/Paywall.jsx';
 import Spinner from './components/Spinner.jsx';
 import { useAuth } from './context/AuthContext.jsx';
 import { generateImage } from './lib/generateImage.js';
 import { prepareImage } from './lib/prepareImage.js';
+import { STRIPE_BILLING_PORTAL_URL } from './config.js';
 
 const EMPTY_SLOT = { file: null, previewUrl: '', error: '' };
 
@@ -18,7 +20,7 @@ function isImageFile(file) {
 }
 
 export default function App() {
-  const { loading: authLoading, session, displayName, signOut } = useAuth();
+  const { loading: authLoading, session, isPaid, displayName, signOut } = useAuth();
 
   const [subject, setSubject] = useState(EMPTY_SLOT);
   const [attribute, setAttribute] = useState(EMPTY_SLOT);
@@ -141,7 +143,7 @@ export default function App() {
     setImgLoaded(false);
   }
 
-  if (authLoading) {
+  if (authLoading || (session && isPaid === null)) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <Spinner />
@@ -153,6 +155,10 @@ export default function App() {
     return <AuthScreen />;
   }
 
+  if (!isPaid) {
+    return <Paywall />;
+  }
+
   return (
     <div className="min-h-screen">
       <header className="border-b border-black/10 bg-canvas/80 backdrop-blur">
@@ -162,6 +168,16 @@ export default function App() {
           </span>
           <div className="flex items-center gap-3 text-sm">
             <span className="hidden text-black/55 sm:inline">{displayName}</span>
+            {STRIPE_BILLING_PORTAL_URL && (
+              <a
+                href={STRIPE_BILLING_PORTAL_URL}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-full border border-black/20 px-4 py-1.5 font-medium transition hover:bg-black/5"
+              >
+                Manage billing
+              </a>
+            )}
             <button
               type="button"
               onClick={() => signOut()}

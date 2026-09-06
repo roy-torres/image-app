@@ -20,9 +20,11 @@ checks for every `api/generate.js` response path.
 
 ## Architecture
 
-Vite + React 19 + Tailwind CSS v4 SPA **plus one serverless function**, with the
-whole app gated behind **Supabase email/password auth**. The browser never calls
-the image webhook directly.
+Vite + React 19 + Tailwind CSS v4 SPA **plus one Vercel serverless function and
+one Supabase Edge Function**. The app is gated in two stages: **Supabase
+email/password auth**, then an active **$9.99/month Stripe subscription**
+(Payment Link → subscription webhooks → `profiles.is_paid`). The browser never
+calls the image webhook directly.
 
 ```
 App.jsx state ─▶ prepareImage() downscales each File ─▶ generateImage()
@@ -52,6 +54,8 @@ App.jsx state ─▶ prepareImage() downscales each File ─▶ generateImage()
   (`https://yzsxemoppdiefsuevmrz.supabase.co`) so the browser can reach Supabase
   Auth. Adding an inline `<script>`/`<style>` or a new external origin
   (font/CDN/API, or a different Supabase project) means updating the CSP here.
+  The Stripe Payment Link needs **no** CSP change — it's a top-level navigation
+  to `buy.stripe.com`, not a frame, fetch, or form post.
 
 ### Auth (Supabase)
 
@@ -84,10 +88,83 @@ App.jsx state ─▶ prepareImage() downscales each File ─▶ generateImage()
   client still handles the confirmation-required response if it's ever re-enabled.
   Live at `https://image-app-one-mu.vercel.app`.
 
+### Payments (Stripe)
+
+**$9.99/month** recurring, via a hosted **Stripe Payment Link** in subscription
+mode (no Stripe.js, no embedded checkout — a full-page redirect out and back).
+Currently **test mode** on Stripe account `acct_1UChm5GXWHoQEMoh` ("UX+AI");
+going live means re-creating the product/price/link/webhook with live keys.
+
+- **Gate order** (`src/App.jsx`, early returns after all hooks): `loading` →
+  spinner, no `session` → `<AuthScreen />`, `session` but `isPaid === null`
+  (entitlement not read yet) → spinner, `!isPaid` → `<Paywall />`, else the
+  Studio. So a member-less user is signed in but sees only the paywall.
+- `src/components/Paywall.jsx` — the subscribe screen. Opens
+  `STRIPE_PAYMENT_LINK` with `?client_reference_id=<supabase user id>&prefilled_email=<email>`
+  appended so the webhook can link the Stripe customer to the account. Polls
+  `refreshEntitlement({ silent: true })` every 4 s and on return from Stripe
+  (`?paid=1`, which it strips), so the gate flips on its own once the
+  subscription is active.
+- `src/context/AuthContext.jsx` — `useAuth()` gains
+  `{ isPaid, entitlementLoading, refreshEntitlement }`. `isPaid` is `null` until
+  `profiles.is_paid` is read for the current user, then boolean. Re-read when the
+  user id changes **and** re-validated for an open session — every 60 s and on
+  tab focus/visibility — so a lapsed subscription drops the user to the paywall
+  mid-session without a reload. `refreshEntitlement(opts)` forwards
+  `{ silent }` (skip the loading flag for background checks).
+- **Membership state** on `public.profiles`:
+  - `add_payment_fields_to_profiles` — `is_paid boolean not null default false`,
+    `paid_at`, `stripe_customer_id`, `stripe_checkout_session_id`; **plus**
+    `revoke update on public.profiles from anon, authenticated` +
+    `grant update (full_name) …` so a signed-in user can edit only their display
+    name — every payment column is writable **only** by the service role.
+  - `switch_profiles_to_subscription` — adds `stripe_subscription_id`,
+    `subscription_status` (raw Stripe status), `current_period_end`. New columns
+    inherit no `UPDATE` grant, so they stay service-role-only too.
+  - `profiles_select_own` RLS still lets a user read their own row (incl.
+    `is_paid`). `is_paid` now means "has an active/trialing subscription".
+- `supabase/functions/stripe-webhook/index.ts` — Supabase Edge Function,
+  deployed with **`verify_jwt = false`** (Stripe can't send a Supabase JWT). It
+  verifies the Stripe signature itself (HMAC-SHA256, Web Crypto, no SDK — same
+  posture as `api/generate.js`), then:
+  - `checkout.session.completed` (mode `subscription`) — the **only** event with
+    `client_reference_id`; PATCH `profiles WHERE id = client_reference_id` to set
+    `is_paid = true`, `stripe_customer_id`, `stripe_subscription_id`. This is
+    where the Stripe customer gets linked to the user.
+  - `customer.subscription.created / updated / deleted` — no user id on these, so
+    PATCH `profiles WHERE stripe_customer_id = <customer>`; `is_paid =
+    status ∈ {active, trialing}` (deleted ⇒ false). Idempotent; a 5xx makes
+    Stripe retry.
+  - Endpoint: `https://yzsxemoppdiefsuevmrz.supabase.co/functions/v1/stripe-webhook`.
+- **The one manual secret**: `STRIPE_WEBHOOK_SIGNING_SECRET` (`whsec_…` from the
+  Stripe webhook endpoint — unchanged across the endpoint's `enabled_events`
+  edits) is set as a Supabase Edge Function secret in the dashboard (no MCP tool,
+  no Supabase CLI installed). `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` are
+  auto-injected.
+- **Self-service cancel**: `STRIPE_BILLING_PORTAL_URL` (Stripe Customer Portal
+  login link — set up in the Stripe Dashboard, static public URL) drives the
+  header **Manage billing** link in the Studio; hidden when unset. Cancels /
+  failed payments come back as `customer.subscription.updated/deleted` and
+  revoke `is_paid`. A nicer direct-portal flow (server-created portal session)
+  would need `STRIPE_SECRET_KEY` + another Edge Function — not done; the MCP key
+  also lacks `billing_portal` write permission.
+- **`api/generate.js` is still NOT payment-aware** (nor auth-aware) — same
+  posture as the login: the paywall gates the UI only. Server-side enforcement
+  would mean sending the Supabase access token to the proxy and verifying it.
+- Stripe: webhook `we_1UCjKCGXWHoQEMohzdLMwWo7`
+  (`checkout.session.completed`, `customer.subscription.{created,updated,deleted}`),
+  product `prod_VD9bgvgaFJH7xW`, recurring price `price_1UCjTLGXWHoQEMohhkW9CGQo`
+  ($9.99/mo), payment link `plink_1UCjToGXWHoQEMohX3YSwkW3`
+  (`https://buy.stripe.com/test_9B66oH0Lxeil36Tdx46sw01`). The old one-time
+  price/link (`…FRDIxS15` / `…f1kwRmV7`) are deactivated.
+
 ### Client side
 
-- `src/config.js` — `API_ENDPOINT` (default `/api/generate`) and the downscale
-  knobs (`MAX_IMAGE_EDGE`, `IMAGE_QUALITY`, `MAX_UPLOAD_BYTES`). No webhook URL.
+- `src/config.js` — `API_ENDPOINT` (default `/api/generate`), the downscale
+  knobs (`MAX_IMAGE_EDGE`, `IMAGE_QUALITY`, `MAX_UPLOAD_BYTES`),
+  `STRIPE_PAYMENT_LINK` (from `VITE_STRIPE_PAYMENT_LINK`) and
+  `STRIPE_BILLING_PORTAL_URL` (from `VITE_STRIPE_BILLING_PORTAL_URL`, optional).
+  No webhook URL, no Stripe secret.
 - `src/lib/prepareImage.js` — canvas downscale + JPEG re-encode so uploads stay
   under `MAX_UPLOAD_BYTES` (Vercel's ~4.5 MB body cap). Runs at generate time,
   not select time; throws a user-facing message if an image can't be shrunk.
@@ -122,6 +199,10 @@ App.jsx state ─▶ prepareImage() downscales each File ─▶ generateImage()
   real value lives only in git-ignored `.env` / Vercel env.
 - `WEBHOOK_SECRET` + n8n Header Auth is the intended second layer; the proxy
   sends `Authorization: Bearer <secret>` whenever the env var is set.
-- `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` are the **only** `VITE_`-prefixed
-  env vars and are meant to be public (RLS-enforced). In Vercel they're marked
-  "Config", not "Sensitive". Never give a server-only secret a `VITE_` prefix.
+- `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` / `VITE_STRIPE_PAYMENT_LINK` /
+  `VITE_STRIPE_BILLING_PORTAL_URL` are the **only** `VITE_`-prefixed env vars and
+  are all meant to be public (the first two RLS-enforced; the Stripe URLs are the
+  same links every subscriber opens). In Vercel mark them "Config", not
+  "Sensitive". Never give a server-only secret a `VITE_` prefix — the Stripe
+  **secret key** is never used client-side, and the webhook **signing secret**
+  lives only as a Supabase Edge Function secret.
