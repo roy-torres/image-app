@@ -67,8 +67,8 @@ ehthumbs.db
 *.swp
 *.swo
 *~
-#mcp servers
-.mcp.json
+#mcp servers — config may hold tokens; ignore backups/variants too
+.mcp.json*
 # Supabase CLI local artifacts
 supabase/.temp/
 supabase/.branches/

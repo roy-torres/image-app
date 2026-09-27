@@ -9,8 +9,47 @@ Built with **Vite + React + Tailwind CSS v4**. The browser never talks to the
 image webhook directly: it POSTs to a same-origin serverless proxy
 (`api/generate.js`) that holds the real URL and secret server-side. Access is
 gated in two stages — **Supabase email/password auth**
-([Authentication](#authentication-supabase)) then a **one-time $9.99 payment**
-([Payments](#payments-stripe)).
+([Authentication](#authentication-supabase)) then an active **$9.99/month
+membership** ([Payments](#payments-stripe)).
+
+## Live demo
+
+**<https://image-app-one-mu.vercel.app/>**
+
+Stripe runs in **test mode**: sign up with any email, then pay with test card
+`4242 4242 4242 4242` (any future expiry, any CVC). No real payment is taken.
+
+## Design decisions
+
+The rest of this README is implementation. This section is the product
+reasoning behind it.
+
+- **Two labeled slots instead of a prompt.** The task is expressed as a
+  *Subject* (person) and an *Attribute* (garment) rather than free text, so the
+  user never has to describe an outcome in words — and the app never has to
+  interpret an ambiguous one.
+- **A starter catalog, to remove the blank canvas.** An empty first screen is
+  where generative tools lose people. One click on a built-in model or wardrobe
+  thumbnail fills a slot; the pick is fetched into a `File`
+  (`src/lib/urlToFile.js`) so it travels the identical path as a manual upload —
+  one code path, no divergent behavior. (`src/components/PresetPicker.jsx`)
+- **Downscale in the browser, at generate time.** Uploads are resized and
+  re-encoded to JPEG before they are sent (`src/lib/prepareImage.js`), which
+  keeps the request under the serverless body limit and shortens the wait on a
+  phone. It runs on generate rather than on select, so choosing an image stays
+  instant.
+- **Plain-language errors, never upstream detail.** The proxy does not relay the
+  upstream error body (`api/generate.js`), so the UI shows a sentence the user
+  can act on instead of a status code — and internal detail cannot leak through
+  a failure.
+- **Download appears only once the image has rendered.** `ResultPanel` waits for
+  the result `<img>` to fire `onLoad` before offering the button, so it is never
+  a broken promise.
+- **A gate that resolves itself.** A signed-in user without a membership sees
+  the paywall, which re-checks entitlement every 4s and on return from Stripe
+  (`src/components/Paywall.jsx`) — unlocking never asks the user to reload. A
+  lapsed subscription re-gates mid-session by the same mechanism
+  (`src/context/AuthContext.jsx`).
 
 ## Architecture
 

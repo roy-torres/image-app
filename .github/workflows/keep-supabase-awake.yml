@@ -1,0 +1,52 @@
+# Supabase pauses Free-plan projects after ~7 days without database activity.
+# When that happens this demo breaks in a way that looks like an app bug: the
+# API hostname stops resolving and sign-in fails with "Failed to fetch".
+#
+# This job makes one small authenticated read a day, which is a real database
+# round trip, so the project stays active. If the request ever fails, the job
+# fails and GitHub emails the repo owner — so an outage surfaces immediately
+# instead of being discovered by a visitor.
+#
+# Config lives in repository secrets, not in this file. The anon key is
+# publishable and RLS-gated, but keys stay out of committed code on principle.
+name: Keep Supabase awake
+
+on:
+  schedule:
+    - cron: '17 6 * * *' # daily at 06:17 UTC
+  workflow_dispatch: # also runnable by hand from the Actions tab
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Read one row through PostgREST
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${SUPABASE_URL:-}" ] || [ -z "${SUPABASE_ANON_KEY:-}" ]; then
+            echo "::error::Missing SUPABASE_URL / SUPABASE_ANON_KEY repository secrets."
+            exit 1
+          fi
+
+          code=$(curl -sS -o /tmp/body -w '%{http_code}' --max-time 30 \
+            -H "apikey: ${SUPABASE_ANON_KEY}" \
+            -H "authorization: Bearer ${SUPABASE_ANON_KEY}" \
+            "${SUPABASE_URL}/rest/v1/profiles?select=id&limit=1")
+
+          echo "HTTP ${code}"
+
+          # Row-level security returns [] to an anonymous caller. That is fine —
+          # the query still reached Postgres, which is what counts as activity.
+          if [ "${code}" != "200" ]; then
+            echo "Response body:"
+            cat /tmp/body || true
+            echo "::error::Supabase did not return 200. The project may be paused — check https://supabase.com/dashboard/project/yzsxemoppdiefsuevmrz"
+            exit 1
+          fi
+
+          echo "Supabase answered 200; project is awake."
