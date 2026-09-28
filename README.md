@@ -1,4 +1,4 @@
-# Virtual Try-On Studio
+# Virtual Try-On Studio v2
 
 A single-page app that takes two images — a **Subject** (person) and an
 **Attribute** (clothing/accessory) — and returns a generated composite image.
@@ -16,8 +16,20 @@ membership** ([Payments](#payments-stripe)).
 
 **<https://image-app-one-mu.vercel.app/>**
 
-Stripe runs in **test mode**: sign up with any email, then pay with test card
-`4242 4242 4242 4242` (any future expiry, any CVC). No real payment is taken.
+**Fastest (about 10 seconds):** sign in with the shared demo account. It already
+has an active membership, so it goes straight to the Studio.
+
+- Email: `demo@tryon-studio.app`
+- Password: `TryOnDemo2026`
+
+Click a built-in model and a clothing item, then **Generate**.
+
+**Want to see the full sign-up and checkout flow?** Click **Sign up**
+and use any email (no confirmation email is sent) and a password of 6+
+characters. On the $9.99/month screen, pay with test card
+`4242 4242 4242 4242`, any future expiry and any CVC/ZIP. **No real payment is
+taken**, because Stripe is in test mode. When you're sent back to the app, it
+unlocks within a few seconds.
 
 ## Design decisions
 

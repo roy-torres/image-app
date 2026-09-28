@@ -69,6 +69,13 @@ ehthumbs.db
 *~
 #mcp servers — config may hold tokens; ignore backups/variants too
 .mcp.json*
+.mcp *.json
 # Supabase CLI local artifacts
 supabase/.temp/
 supabase/.branches/
+# Claude Code local settings / logs
+.claude/settings.local.json
+.claude/logs/
+
+# Playwright MCP snapshots
+.playwright-mcp/
