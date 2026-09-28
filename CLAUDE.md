@@ -148,7 +148,9 @@ going live means re-creating the product/price/link/webhook with live keys.
   auto-injected.
 - **Self-service cancel**: `STRIPE_BILLING_PORTAL_URL` (Stripe Customer Portal
   login link — set up in the Stripe Dashboard, static public URL) drives the
-  header **Manage billing** link in the Studio; hidden when unset. Cancels /
+  header **Manage billing** link in the Studio; hidden when unset, and hidden
+  when the user has no `stripe_customer_id` (`useAuth().hasBillingAccount` —
+  e.g. the shared demo account, whose membership was granted in the DB). Cancels /
   failed payments come back as `customer.subscription.updated/deleted` and
   revoke `is_paid`. A nicer direct-portal flow (server-created portal session)
   would need `STRIPE_SECRET_KEY` + another Edge Function — not done; the MCP key

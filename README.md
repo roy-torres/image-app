@@ -1,4 +1,4 @@
-# Virtual Try-On Studio v2
+# Virtual Try-On Studio - v2
 
 A single-page app that takes two images — a **Subject** (person) and an
 **Attribute** (clothing/accessory) — and returns a generated composite image.

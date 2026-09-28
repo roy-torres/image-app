@@ -17,6 +17,10 @@ export function AuthProvider({ children }) {
   // for the current user; `true` / `false` once the profiles row has been read.
   const [isPaid, setIsPaid] = useState(null);
   const [entitlementLoading, setEntitlementLoading] = useState(false);
+  // Whether the user has a linked Stripe customer. False for accounts whose
+  // membership was granted without Stripe (the shared demo account), so the
+  // header can hide "Manage billing", which would find nothing.
+  const [hasBillingAccount, setHasBillingAccount] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -48,6 +52,7 @@ export function AuthProvider({ children }) {
   const fetchEntitlement = useCallback(async (userId, { silent = false } = {}) => {
     if (!userId) {
       setIsPaid(null);
+      setHasBillingAccount(false);
       setEntitlementLoading(false);
       return null;
     }
@@ -55,7 +60,7 @@ export function AuthProvider({ children }) {
     try {
       const { data, error } = await supabase
         .from('profiles')
-        .select('is_paid')
+        .select('is_paid, stripe_customer_id')
         .eq('id', userId)
         .maybeSingle();
       if (error) {
@@ -68,6 +73,7 @@ export function AuthProvider({ children }) {
       }
       const paid = Boolean(data?.is_paid);
       setIsPaid(paid);
+      setHasBillingAccount(Boolean(data?.stripe_customer_id));
       return paid;
     } finally {
       if (!silent) setEntitlementLoading(false);
@@ -136,6 +142,7 @@ export function AuthProvider({ children }) {
       displayName:
         session?.user?.user_metadata?.full_name || session?.user?.email || '',
       isPaid,
+      hasBillingAccount,
       entitlementLoading,
       refreshEntitlement,
       signUp,
@@ -146,6 +153,7 @@ export function AuthProvider({ children }) {
       loading,
       session,
       isPaid,
+      hasBillingAccount,
       entitlementLoading,
       refreshEntitlement,
       signUp,

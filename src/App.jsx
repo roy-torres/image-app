@@ -23,7 +23,8 @@ function isImageFile(file) {
 }
 
 export default function App() {
-  const { loading: authLoading, session, isPaid, displayName, signOut } = useAuth();
+  const { loading: authLoading, session, isPaid, hasBillingAccount, displayName, signOut } =
+    useAuth();
 
   const [subject, setSubject] = useState(EMPTY_SLOT);
   const [attribute, setAttribute] = useState(EMPTY_SLOT);
@@ -201,7 +202,7 @@ export default function App() {
           </span>
           <div className="flex items-center gap-3 text-sm">
             <span className="hidden text-black/55 sm:inline">{displayName}</span>
-            {STRIPE_BILLING_PORTAL_URL && (
+            {STRIPE_BILLING_PORTAL_URL && hasBillingAccount && (
               <a
                 href={STRIPE_BILLING_PORTAL_URL}
                 target="_blank"
