@@ -7,6 +7,9 @@
 # fails and GitHub emails the repo owner — so an outage surfaces immediately
 # instead of being discovered by a visitor.
 #
+# GitHub disables scheduled workflows after 60 days without repo activity, so
+# the last step re-enables this workflow on every run to keep it alive.
+#
 # Config lives in repository secrets, not in this file. The anon key is
 # publishable and RLS-gated, but keys stay out of committed code on principle.
 name: Keep Supabase awake
@@ -20,6 +23,8 @@ jobs:
   ping:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      actions: write # lets the keepalive step re-enable this workflow
     steps:
       - name: Read one row through PostgREST
         env:
@@ -50,3 +55,9 @@ jobs:
           fi
 
           echo "Supabase answered 200; project is awake."
+
+      - name: Keep this workflow from being auto-disabled
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/keep-supabase-awake.yml/enable"
